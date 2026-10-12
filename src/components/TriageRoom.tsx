@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Mic, MicOff, Volume2, VolumeX, ArrowLeft, FileText, ChevronRight, Stethoscope, ShieldCheck, MessageCircle, Globe2, PhoneCall, Keyboard, Pause, Play, X } from 'lucide-react';
 import { PatientToken, ChatMessage, Prescription, UrgencyCode } from '../types/hospital';
 import { HospitalAPI } from '../services/api';
+import { startBrowserTranscription, startLiveTranscription, type LiveTranscription } from '../services/liveTranscription';
 
 interface TriageRoomProps {
   token: PatientToken;
@@ -42,6 +43,8 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
   const [canFinalize, setCanFinalize] = useState(false);
   const [currentUrgency, setCurrentUrgency] = useState<UrgencyCode>(token.urgencyCode || 'GREEN');
   const [isRecording, setIsRecording] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [voiceError, setVoiceError] = useState('');
   const [showReport, setShowReport] = useState(false);
@@ -55,7 +58,8 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
   const roomRef = useRef<HTMLDivElement>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const transcriptionRef = useRef<LiveTranscription | null>(null);
+  const voiceConversationRef = useRef(false);
   const audioRequestRef = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -75,8 +79,8 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
   }, []);
 
   useEffect(() => {
-    if (showText && !isRecording) answerRef.current?.focus({ preventScroll: true });
-  }, [showText, isRecording]);
+    if (showText && !isRecording && !isConnecting && !isTranscribing) answerRef.current?.focus({ preventScroll: true });
+  }, [showText, isRecording, isConnecting, isTranscribing]);
 
   // Auto scroll
   useEffect(() => {
@@ -94,50 +98,69 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
 
   useEffect(() => () => {
     audioRequestRef.current += 1;
-    recognitionRef.current?.abort();
+    transcriptionRef.current?.close();
     audioRef.current?.pause();
     window.speechSynthesis?.cancel();
   }, []);
 
-  const toggleRecording = () => {
-    if (isAiThinking || isFinalizing) return;
+  const toggleRecording = async () => {
+    if (isAiThinking || isFinalizing || isConnecting || isTranscribing) return;
     setVoiceError('');
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+    if (transcriptionRef.current) {
+      setIsRecording(false);
+      setIsTranscribing(true);
+      transcriptionRef.current.stop();
       return;
     }
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
+    if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
       setShowText(true);
-      setVoiceError(isBn ? 'এই ব্রাউজারে কথা বলে উত্তর দেওয়া যাচ্ছে না। নিচে লিখে পাঠান।' : 'Voice input is not available in this browser. Please type your answer below.');
+      setVoiceError(isBn ? 'এই ব্রাউজারে লাইভ ভয়েস চালু করা যাচ্ছে না। লিখে উত্তর দিন।' : 'Live voice is unavailable in this browser. Please type your answer.');
       return;
     }
     stopAudio();
-    try {
-      const recognition = new SpeechRecognition();
-      recognitionRef.current = recognition;
-      recognition.lang = isBn ? 'bn-BD' : 'en-US';
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.onstart = () => setIsRecording(true);
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setShowText(true);
-        setInputText((prev) => (prev ? `${prev} ${transcript}` : transcript));
-      };
-      recognition.onerror = (event: any) => {
-        if (event.error !== 'aborted') setVoiceError(isBn ? 'আপনার কথা শোনা যায়নি। মাইক্রোফোনের অনুমতি দেখে আবার চেষ্টা করুন, অথবা লিখে পাঠান।' : 'We could not hear you. Check microphone permission and try again, or type your answer.');
-        setIsRecording(false);
-      };
-      recognition.onend = () => {
-        recognitionRef.current = null;
-        setIsRecording(false);
-      };
-      recognition.start();
-    } catch {
-      recognitionRef.current = null;
+    setShowText(true);
+    setInputText('');
+    setIsConnecting(true);
+    const onPartial = (partial: string) => setInputText(partial);
+    const onComplete = (finalText: string) => {
+      transcriptionRef.current = null;
+      setInputText(finalText);
+      setIsTranscribing(false);
       setIsRecording(false);
-      setVoiceError(isBn ? 'মাইক্রোফোন চালু হয়নি। নিচে লিখে পাঠাতে পারেন।' : 'The microphone could not start. You can type below.');
+      voiceConversationRef.current = !!finalText.trim();
+      if (!finalText.trim()) setVoiceError(isBn ? 'কথা বোঝা যায়নি। আবার বলুন অথবা লিখুন।' : 'No speech was detected. Try again or type.');
+    };
+    const onError = () => {
+      transcriptionRef.current = null;
+      setIsTranscribing(false);
+      setIsRecording(false);
+      setVoiceError(isBn ? 'ট্রান্সক্রিপশন বন্ধ হয়েছে। আবার চেষ্টা করুন অথবা লিখুন।' : 'Transcription stopped. Try again or type.');
+    };
+    try {
+      const session = await startLiveTranscription(language, onPartial, onComplete, onError);
+      transcriptionRef.current = session;
+      setIsRecording(true);
+    } catch (error) {
+      console.warn('OpenAI live transcription unavailable:', error);
+      if (!(error instanceof DOMException && error.name === 'NotAllowedError')) {
+        try {
+          const fallback = startBrowserTranscription(language, onPartial, onComplete, onError);
+          if (fallback) {
+            transcriptionRef.current = fallback;
+            setIsRecording(true);
+            setVoiceError(isBn ? 'OpenAI লাইভ ট্রান্সক্রিপশন পাওয়া যায়নি। ব্রাউজারের ভয়েস ব্যবহার হচ্ছে।' : 'OpenAI live transcription is unavailable. Using browser voice input.');
+            return;
+          }
+        } catch (fallbackError) {
+          console.warn('Browser voice input unavailable:', fallbackError);
+        }
+      }
+      transcriptionRef.current = null;
+      setIsRecording(false);
+      setIsTranscribing(false);
+      setVoiceError(isBn ? 'ভয়েস চালু হয়নি। মাইক্রোফোনের অনুমতি দেখে আবার চেষ্টা করুন অথবা লিখুন।' : 'Voice input could not start. Check microphone permission or type your answer.');
+    } finally {
+      setIsConnecting(false);
     }
   };
 
@@ -145,12 +168,23 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
     const wasPlaying = playingAudioId === message.id;
     stopAudio();
     if (wasPlaying) return;
-    recognitionRef.current?.stop();
+    transcriptionRef.current?.close();
+    transcriptionRef.current = null;
     const requestId = audioRequestRef.current;
     setPlayingAudioId(message.id);
     try {
-      const base64 = message.audioBase64 || await HospitalAPI.getTTSAudio(message.text);
+      const speech = message.audioBase64
+        ? { audioBase64: message.audioBase64 }
+        : await HospitalAPI.getTTSAudio(message.text, language);
+      const base64 = speech.audioBase64;
       if (requestId !== audioRequestRef.current) return;
+      if (speech.issue) {
+        setVoiceError(speech.issue === 'account'
+          ? (isBn ? 'OpenAI ভয়েসের ক্রেডিট বা খরচের সীমা শেষ। ডিভাইসের কণ্ঠ ব্যবহার হচ্ছে।' : 'OpenAI voice credits or spend limit reached. Using your device voice.')
+          : speech.issue === 'rate'
+            ? (isBn ? 'OpenAI ভয়েসের অনুরোধের সীমা হয়েছে। ডিভাইসের কণ্ঠ ব্যবহার হচ্ছে।' : 'OpenAI voice rate limit reached. Using your device voice.')
+            : (isBn ? 'OpenAI ভয়েস পাওয়া যায়নি। ডিভাইসের কণ্ঠ ব্যবহার হচ্ছে।' : 'OpenAI voice is unavailable. Using your device voice.'));
+      }
       if (base64) {
         message.audioBase64 = base64;
         const audio = new Audio(`data:audio/wav;base64,${base64}`);
@@ -181,7 +215,8 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
   const handleSendMessage = async (customText?: string) => {
     const textToSend = (customText || inputText).trim();
     if (!textToSend || isAiThinking || isFinalizing) return;
-    recognitionRef.current?.abort();
+    transcriptionRef.current?.close();
+    transcriptionRef.current = null;
     stopAudio();
     setCanFinalize(false);
 
@@ -215,6 +250,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
       };
 
       setMessages((prev) => [...prev, aiMessage]);
+      if (voiceConversationRef.current) void handlePlayAudio(aiMessage);
 
       if (aiResponse.triageCode) {
         setCurrentUrgency(aiResponse.triageCode);
@@ -263,9 +299,13 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
   const latestMessage = messages[messages.length - 1];
   const latestAiMessage = [...messages].reverse().find((message) => message.sender === 'ai');
   const visibleMessages = showHistory ? messages : (isAiThinking ? [] : latestAiMessage ? [latestAiMessage] : []);
-  const busy = isAiThinking || isFinalizing;
+  const busy = isAiThinking || isFinalizing || isConnecting || isTranscribing;
   const presence = isRecording
     ? (isBn ? 'শুনছি, বলুন…' : 'Listening to you…')
+    : isConnecting
+    ? (isBn ? 'লাইভ ভয়েস সংযুক্ত হচ্ছে…' : 'Connecting live voice…')
+    : isTranscribing
+    ? (isBn ? 'আপনার কথা লিখছি…' : 'Finishing transcript…')
     : playingAudioId
     ? (isBn ? 'আপনার সঙ্গে কথা বলছি…' : 'Speaking with you…')
     : isAiThinking
@@ -273,7 +313,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
     : (isBn ? 'আপনার কথা শুনতে প্রস্তুত' : 'Here to listen to you');
 
   return (
-    <div ref={roomRef} className={`consultation-room ${showText ? 'text-entry-open' : ''} ${showReport ? 'report-entry-open' : ''}`}>
+    <div ref={roomRef} className={`consultation-room ${showText ? 'text-entry-open' : ''} ${isRecording || isConnecting || isTranscribing ? 'voice-active' : ''} ${showReport ? 'report-entry-open' : ''}`}>
       <header className="consultation-heading">
         <div className="consultation-title">
           <button onClick={onBack} className="consultation-back" aria-label={isBn ? 'ফিরে যান' : 'Go back'}><ArrowLeft size={19} /></button>
@@ -364,6 +404,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
               </button>
               <button className={`care-keyboard ${showText ? 'selected' : ''}`} onClick={() => setShowText(!showText)} aria-expanded={showText} aria-controls="spoken-answer" aria-label={isBn ? 'লিখে উত্তর দিন' : 'Type your answer'}><Keyboard size={22} /></button>
             </div>
+            <p className="voice-disclosure">{isBn ? 'শোনা কণ্ঠটি AI-তৈরি, মানুষ নয়।' : 'The voice you hear is AI-generated, not a person.'}</p>
             {voiceError && <p className="care-input-error" role="alert">{voiceError}</p>}
             {showText && <form id="spoken-answer" className="care-text-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}>
               <button type="button" className="close-text-entry" onClick={() => { answerRef.current?.blur(); setShowText(false); }} aria-label={isBn ? 'কথা বলায় ফিরুন' : 'Return to voice'}><X size={18} /></button>
@@ -379,7 +420,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
           </div>
         </div>
       </section>
-      <p className="consultation-footnote">{isBn ? 'AI সহকারী · প্রেসক্রিপশন ডাক্তার যাচাই করবেন' : 'AI assistant · Prescriptions reviewed by a doctor'}</p>
+      <p className="consultation-footnote">{isBn ? 'এই কণ্ঠ AI-তৈরি, মানুষ নয় · প্রেসক্রিপশন ডাক্তার যাচাই করবেন' : 'This voice is AI-generated, not a person · Prescriptions reviewed by a doctor'}</p>
 
     </div>
   );

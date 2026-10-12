@@ -16,6 +16,28 @@ app.use(express.json({ limit: '10mb' }));
 
 // Shared Gemini client setup as per guidelines
 const apiKey = process.env.GEMINI_API_KEY || '';
+const openaiApiKey = process.env.OPENAI_API_KEY || '';
+const openaiLimitCodes = new Set([
+  'credit_balance_exhausted',
+  'organization_spend_limit_exceeded',
+  'project_spend_limit_exceeded',
+  'organization_usage_limit_exceeded',
+  'insufficient_quota',
+]);
+
+async function openaiErrorDetails(response: globalThis.Response) {
+  const body = await response.text();
+  let code = '';
+  try {
+    const parsed = JSON.parse(body);
+    code = String(parsed?.error?.code || '');
+  } catch { /* Some upstream errors are plain text. */ }
+  return {
+    code,
+    requestId: response.headers.get('x-request-id') || '',
+    retryAfter: response.headers.get('retry-after') || '',
+  };
+}
 const ai = new GoogleGenAI({
   apiKey,
   httpOptions: {
@@ -922,52 +944,105 @@ Respond in JSON strictly:
   }
 });
 
-// 4. API: Text-to-Speech (Gemini TTS) for patient voice guidance
+// Keep the OpenAI project key on the server while the browser sends microphone
+// audio directly over WebRTC. We consume GPT-Live input transcript events;
+// clinical replies still use the triage route after the patient reviews text.
+app.post('/api/realtime/transcribe-session', async (req: Request, res: Response) => {
+  const { sdp } = req.body || {};
+  if (!openaiApiKey) return res.status(503).json({ error: 'OPENAI_API_KEY is not configured' });
+  if (typeof sdp !== 'string' || !sdp.startsWith('v=0') || sdp.length > 65536) {
+    return res.status(400).json({ error: 'A valid SDP offer is required' });
+  }
+  const origin = req.get('origin');
+  const host = req.get('x-forwarded-host') || req.get('host');
+  if (!origin || !host || !URL.canParse(origin) || new URL(origin).host !== host) {
+    return res.status(403).json({ error: 'Unexpected request origin' });
+  }
+
+  try {
+    const upstream = await fetch('https://api.openai.com/v1/live/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session: {
+          model: 'GPT-Live-1 mini',
+          instructions: 'Listen carefully to the patient and provide input transcript events. Do not speak or answer; the application handles the medical response after the patient reviews the transcript.',
+        },
+        transport: { type: 'webrtc', sdp },
+      }),
+    });
+    if (!upstream.ok) {
+      const details = await openaiErrorDetails(upstream);
+      console.error('OpenAI transcription session failed:', upstream.status, details);
+      if (details.retryAfter) res.set('Retry-After', details.retryAfter);
+      return res.status(upstream.status === 429 ? 429 : upstream.status >= 500 ? 503 : 502).json({
+        error: upstream.status >= 500 ? 'OpenAI live transcription is temporarily unavailable' : 'Could not start live transcription',
+        code: details.code,
+        requestId: details.requestId,
+      });
+    }
+    const session = await upstream.json();
+    if (typeof session?.transport?.sdp !== 'string') {
+      console.error('OpenAI Live returned no SDP answer');
+      return res.status(502).json({ error: 'OpenAI Live returned no connection answer' });
+    }
+    res.json({ sdp: session.transport.sdp });
+  } catch (err) {
+    console.error('OpenAI transcription connection failed:', err);
+    res.status(502).json({ error: 'Could not connect live transcription' });
+  }
+});
+
+// 4. API: expressive AI speech for patient voice guidance
 app.post('/api/tts', async (req: Request, res: Response) => {
   try {
-    const { text } = req.body;
-    if (!text) {
-      return res.status(400).json({ error: 'Text is required for TTS' });
+    const { text, language } = req.body;
+    if (typeof text !== 'string' || !text.trim() || text.length > 4000) {
+      return res.status(400).json({ error: 'Text must be between 1 and 4000 characters' });
     }
-
-    if (!apiKey) {
-      return res.status(200).json({ audioBase64: null, message: 'TTS unavailable without API key' });
+    if (!openaiApiKey) {
+      return res.status(503).json({ error: 'OPENAI_API_KEY is not configured' });
     }
-
-    const ttsResponse = await ai.models.generateContent({
-      model: 'gemini-3.8-flash-lite-tts',
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text,
-              speechMetadata: {
-                style: 'Gentle, compassionate medical doctor tone',
-              },
-            },
-          ],
-        },
-      ],
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
-          },
-        },
+    const speech = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini-tts',
+        voice: 'marin',
+        input: text.trim(),
+        response_format: 'wav',
+        instructions: language === 'en'
+          ? 'Speak in clear, natural English with gentle warmth and attentive empathy. Sound calm and reassuring, especially for urgent guidance. Do not dramatize symptoms.'
+          : 'Speak in natural Bangladeshi Bengali with gentle warmth and attentive empathy. Use clear pronunciation, calm pacing, and a reassuring tone. Do not dramatize symptoms.',
+      }),
     });
-
-    const base64Audio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (base64Audio) {
-      return res.json({ audioBase64: base64Audio });
-    } else {
-      return res.json({ audioBase64: null });
+    if (!speech.ok) {
+      const details = await openaiErrorDetails(speech);
+      console.error('OpenAI speech failed:', speech.status, details);
+      if (details.retryAfter) res.set('Retry-After', details.retryAfter);
+      const limitReached = openaiLimitCodes.has(details.code);
+      return res.status(speech.status === 429 ? 429 : 502).json({
+        error: limitReached
+          ? 'OpenAI account credit or spend limit reached'
+          : speech.status === 429
+            ? 'OpenAI speech rate limit reached'
+            : 'Could not generate speech',
+        code: details.code,
+        requestId: details.requestId,
+        retryAfter: details.retryAfter,
+      });
     }
+    const audioBase64 = Buffer.from(await speech.arrayBuffer()).toString('base64');
+    return res.json({ audioBase64 });
   } catch (err: any) {
-    console.warn('TTS error (non-fatal):', err?.message);
-    res.json({ audioBase64: null });
+    console.warn('OpenAI speech error:', err?.message);
+    res.status(502).json({ error: 'Could not generate speech' });
   }
 });
 

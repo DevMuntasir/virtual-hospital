@@ -52,16 +52,14 @@ export const TokenModal: React.FC<TokenModalProps> = ({
         {/* Header */}
         <div className="bg-gradient-to-r from-teal-700 to-emerald-800 text-white px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center ring-1 ring-white/20">
-              <Activity className="w-5 h-5 text-teal-200" />
-            </div>
+          
             <div>
               <h3 className="text-lg font-bold">
-                {isBn ? 'জরুরি এআই জিপি টোকেন ও ট্রায়াজ টিকিট' : 'Emergency AI GP Token & Triage Ticket'}
+                {isBn ? 'জরুরি জিপি টিকিট' : 'Emergency AI GP Ticket'}
               </h3>
-              <p className="text-xs text-teal-100">
+              {/* <p className="text-xs text-teal-100">
                 {isBn ? 'চেম্বারের ভিড় এড়িয়ে তাৎক্ষণিক প্রাথমিক ক্লিনিক্যাল ইনভেস্টিগেশন' : 'Skip physical chamber queues with instant AI doctor investigation'}
-              </p>
+              </p> */}
             </div>
           </div>
           <button
@@ -126,17 +124,17 @@ export const TokenModal: React.FC<TokenModalProps> = ({
             </div>
           </div>
 
-          <p className="text-sm text-teal-800 bg-teal-50 border border-teal-100 rounded-xl p-3">
+          {/* <p className="text-sm text-teal-800 bg-teal-50 border border-teal-100 rounded-xl p-3">
             {isBn
               ? 'টিকিটের জন্য শুধু নাম, বয়স ও মোবাইল নম্বর দিন। এরপর AI আপনার প্রধান সমস্যা, উপসর্গ ও অন্যান্য প্রয়োজনীয় তথ্য একে একে জিজ্ঞেস করবে। আপনি লিখে বা কথা বলে উত্তর দিতে পারবেন।'
               : 'Only your name, age and mobile number are needed for a ticket. The AI will then ask about your main concern, symptoms and other necessary details step by step. You can type or speak your answers.'}
-          </p>
+          </p> */}
 
           {/* Token Fee & Payment Method */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-slate-700">
-                {isBn ? 'টোকেন ও ভার্চুয়াল ইনভেস্টিগেশন ফি:' : 'Token & Virtual Investigation Fee:'}
+                {isBn ? 'ভার্চুয়াল ফি:' : 'Virtual Fee:'}
               </span>
               <span className="text-sm font-bold text-teal-700 bg-teal-100/70 px-2.5 py-0.5 rounded">
                 ৳ ১০০ (১০০ টাকা)
@@ -186,11 +184,11 @@ export const TokenModal: React.FC<TokenModalProps> = ({
               disabled={isSubmitting}
               className="flex items-center gap-2 px-5 py-2.5 bg-teal-700 hover:bg-teal-800 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
             >
-              <Sparkles className="w-4 h-4 text-amber-300" />
+              {/* <Sparkles className="w-4 h-4 text-amber-300" /> */}
               <span>
                 {isSubmitting
                   ? (isBn ? 'টোকেন প্রস্তুত হচ্ছে...' : 'Issuing Token...')
-                  : (isBn ? 'টোকেন কাটুন ও ডাক্তারের কাছে যান' : 'Generate Token & Start Triage')}
+                  : (isBn ? 'ডাক্তারের কাছে যান' : 'Start Triage')}
               </span>
               <ArrowRight className="w-4 h-4" />
             </button>

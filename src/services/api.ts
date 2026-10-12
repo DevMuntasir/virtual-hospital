@@ -1,5 +1,10 @@
 import { PatientInfo, Prescription, PatientToken, SpecialistDoctor, HospitalEmergencyUnit } from '../types/hospital';
 
+let speechCooldownUntil = 0;
+let speechAccountLimitReached = false;
+
+type SpeechResult = { audioBase64: string | null; issue?: 'rate' | 'account' | 'unavailable' };
+
 export const HospitalAPI = {
   // 1. Send live triage message
   async sendTriageMessage(conversation: any[], patientInfo: PatientInfo, language: 'bn' | 'en') {
@@ -35,18 +40,32 @@ export const HospitalAPI = {
   },
 
   // 4. TTS audio generator
-  async getTTSAudio(text: string): Promise<string | null> {
+  async getTTSAudio(text: string, language: 'bn' | 'en'): Promise<SpeechResult> {
+    if (speechAccountLimitReached) return { audioBase64: null, issue: 'account' };
+    if (Date.now() < speechCooldownUntil) return { audioBase64: null, issue: 'rate' };
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, language }),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        const details = await res.json().catch(() => ({}));
+        if (res.status === 429) {
+          if (/credit_balance_exhausted|spend_limit_exceeded|usage_limit_exceeded|insufficient_quota/.test(details.code || '')) {
+            speechAccountLimitReached = true;
+            return { audioBase64: null, issue: 'account' };
+          }
+          const retrySeconds = Number(details.retryAfter || res.headers.get('Retry-After'));
+          speechCooldownUntil = Date.now() + (Number.isFinite(retrySeconds) && retrySeconds > 0 ? retrySeconds : 30) * 1000;
+          return { audioBase64: null, issue: 'rate' };
+        }
+        return { audioBase64: null, issue: 'unavailable' };
+      }
       const data = await res.json();
-      return data.audioBase64 || null;
+      return { audioBase64: data.audioBase64 || null };
     } catch {
-      return null;
+      return { audioBase64: null, issue: 'unavailable' };
     }
   },
 

@@ -30,13 +30,13 @@ export function PatientHome({ language, prescriptions, loading, loadError, onSta
   return (
     <div className="patient-home">
       <section className="patient-hero" aria-labelledby="hero-heading">
-        <div className="hero-emergency">
+        {/* <div className="hero-emergency">
           <div className="hero-emergency-copy"><Building2 size={24} /><div><h2>{copy('জরুরি সাহায্য প্রয়োজন?', 'Need emergency help?')}</h2><p>{copy('অনলাইন পরামর্শের জন্য অপেক্ষা করবেন না।', 'Do not wait for an online consultation.')}</p></div></div>
           <div className="hero-emergency-actions"><a href="tel:999"><PhoneCall size={17} />{copy('৯৯৯ কল করুন', 'Call 999')}</a><button onClick={onEmergency}>{copy('জরুরি হাসপাতাল', 'Emergency hospitals')}<ArrowUpRight size={18} /></button></div>
-        </div>
+        </div> */}
         <div className="hero-main">
           <div className="hero-introduction">
-            <span className="hero-label"><span aria-hidden="true">+</span>{copy('স্বাস্থ্যসেবা / ভার্চুয়াল হাসপাতাল', 'SHASTHYASHEBA / VIRTUAL HOSPITAL')}</span>
+            {/* <span className="hero-label"><span aria-hidden="true">+</span>{copy('স্বাস্থ্যসেবা / ভার্চুয়াল হাসপাতাল', 'SHASTHYASHEBA / VIRTUAL HOSPITAL')}</span> */}
             <h1 id="hero-heading">{copy('এখনই পরামর্শ,', 'Care for today.')}<br /><span>{copy('অথবা সময় করে', 'A visit that fits')}<br />{' '}{copy('ডাক্তার দেখান।', 'your schedule.')}</span></h1>
             <p>{copy('আপনার প্রয়োজন অনুযায়ী চিকিৎসাসেবার পরবর্তী ধাপ বেছে নিন।', 'Choose your next step, based on the care you need.')}</p>
             <a className="hero-record-link" href="#recent-heading"><FileText size={17} />{copy('আগের প্রেসক্রিপশন দেখুন', 'View previous prescriptions')}<ArrowUpRight size={16} /></a>
@@ -56,11 +56,12 @@ export function PatientHome({ language, prescriptions, loading, loadError, onSta
                 <button className="hero-submit" onClick={() => onSpecialist(department)}>{copy('ডাক্তার ও সময়সূচি দেখুন', 'Find doctors & schedules')}<ArrowRight size={19} /></button>
                 <span className="panel-footnote"><CalendarDays size={15} />{copy('ডাক্তারের তালিকা থেকে চেম্বারের সময় দেখুন', 'Check chamber hours in the doctor directory')}</span>
               </> : <>
-                <h2>{copy('সমস্যা জানিয়ে শুরু করুন', 'Start with your symptoms')}</h2>
-                <p>{copy('এআইয়ের প্রাথমিক মূল্যায়নের পর চিকিৎসক খসড়া প্রেসক্রিপশন যাচাই করবেন।', 'An AI-assisted assessment, followed by a doctor’s review of the draft prescription.')}</p>
-                <div className="hero-token-fee"><span>{copy('প্রাথমিক ট্রায়াজ টোকেন', 'Initial triage token')}</span><strong>{copy('৳ ১০০', '৳ 100')}</strong></div>
-                <button className="hero-submit" onClick={onStart}>{copy('পরামর্শ শুরু করুন', 'Start consultation')}<ArrowRight size={19} /></button>
-                <span className="panel-footnote"><ShieldCheck size={15} />{copy('প্রেসক্রিপশনে চিকিৎসকের অনুমোদন আবশ্যক', 'Prescriptions require doctor approval')}</span>
+                  <div className="hero-token-fee">     <h2>{copy('সমস্যা জানিয়ে শুরু করুন', 'Start with your symptoms')} </h2> <span>{copy('  ', '')}</span><strong>{copy('৳ ১০০', '৳ 100')}</strong></div>
+
+            
+                {/* <p>{copy('এআইয়ের প্রাথমিক মূল্যায়নের পর চিকিৎসক খসড়া প্রেসক্রিপশন যাচাই করবেন।', 'An AI-assisted assessment, followed by a doctor’s review of the draft prescription.')}</p> */}
+                  <button className="hero-submit" onClick={onStart}>{copy('জরুরি টিকিট সংগ্রহ', 'Emergency Ticket')}<ArrowRight size={19} /></button>
+                {/* <span className="panel-footnote"><ShieldCheck size={15} />{copy('প্রেসক্রিপশনে চিকিৎসকের অনুমোদন আবশ্যক', 'Prescriptions require doctor approval')}</span> */}
               </>}
             </div>
           </div>
