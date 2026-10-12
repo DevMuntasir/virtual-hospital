@@ -1,0 +1,6 @@
+{
+  "name": "ShasthyaSheba - AI Virtual Hospital & Emergency Triage",
+  "description": "AI-powered emergency clinical triage, instant GP consultation, specialist referral routing, and doctor-approved virtual prescriptions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
