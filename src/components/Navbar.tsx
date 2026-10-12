@@ -12,7 +12,7 @@ interface NavbarProps {
 export function Navbar({ currentView, setCurrentView, language, setLanguage, onOpenTokenModal, pendingDoctorApprovalsCount }: NavbarProps) {
   const bn = language === 'bn';
   return <header className="site-header">
-    <div className="emergency-strip"><div><span><Activity size={14} />{bn ? 'জরুরি অবস্থায় অনলাইন পরামর্শের জন্য অপেক্ষা করবেন না।' : 'In an emergency, do not wait for an online consultation.'}</span><a href="tel:999"><PhoneCall size={14} />{bn ? 'জরুরি কল ৯৯৯' : 'Emergency 999'}<ArrowUpRight size={13} /></a></div></div>
+    {/* <div className="emergency-strip"><div><span><Activity size={14} />{bn ? 'জরুরি অবস্থায় অনলাইন পরামর্শের জন্য অপেক্ষা করবেন না।' : 'In an emergency, do not wait for an online consultation.'}</span><a href="tel:999"><PhoneCall size={14} />{bn ? 'জরুরি কল ৯৯৯' : 'Emergency 999'}<ArrowUpRight size={13} /></a></div></div> */}
     <div className="main-navigation">
       <button className="brand" onClick={() => setCurrentView('patient')} aria-label={bn ? 'স্বাস্থ্যসেবা হোম' : 'ShasthyaSheba home'}><span className="brand-mark"><Activity size={26} /></span><span><strong>{bn ? 'স্বাস্থ্যসেবা' : 'ShasthyaSheba'}<i /></strong><small>{bn ? 'যত্নের শুরু এখানেই' : 'Your care starts here'}</small></span></button>
       <nav className="primary-navigation" aria-label={bn ? 'প্রধান নেভিগেশন' : 'Main navigation'}>

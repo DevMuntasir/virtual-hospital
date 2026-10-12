@@ -37,7 +37,7 @@
 .emergency-strip > div { max-width: 1200px; margin: auto; padding: 9px 28px; display: flex; justify-content: space-between; gap: 16px; }
 .emergency-strip span, .emergency-strip a { display: flex; align-items: center; gap: 8px; }
 .emergency-strip a { color: #a54336; font-weight: 700; white-space: nowrap; }
-.main-navigation { max-width: 1200px; margin: auto; padding: 23px 28px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.main-navigation { max-width: 1200px; margin: auto; padding: 10px 28px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
 .brand { display: flex; gap: 11px; align-items: center; text-align: left; }
 .brand-mark { background: #175b4b; color: #fff; width: 44px; height: 44px; border-radius: 14px 14px 14px 3px; display: grid; place-items: center; }
 .brand strong { display: flex; align-items: center; gap: 4px; font-size: 25px; line-height: 1.2; color: #183e34; letter-spacing: -.8px; }
@@ -391,3 +391,77 @@
 }
 
 .care-text-form .close-text-entry { background: transparent; color: #7a8b73; width: 36px; flex-shrink: 0; }
+
+/* Full-width virtual hospital reception; HTML controls sit above the WebGL room. */
+.patient-home { max-width: none; padding: 0; }
+.patient-home > .followup-access, .patient-home > .recent-section { width: calc(100% - 48px); max-width: 1144px; margin-left: auto; margin-right: auto; }
+.reception-hero { overflow: hidden; background: #eaf1ec; border-bottom: 1px solid #cedfd5; }
+.reception-heading { position: relative; z-index: 1; text-align: center; padding: 30px 20px 0; background: linear-gradient(#f3f6f0, #eaf1ec); }
+.reception-eyebrow { display: inline-flex; align-items: center; gap: 8px; color: #426a5c; font-size: 11px; letter-spacing: 1.7px; font-weight: 600; }
+.reception-eyebrow > span { width: 7px; height: 7px; border-radius: 50%; background: #548971; box-shadow: 0 0 0 4px #54897115; }
+.reception-heading h1 { margin: 10px 0 8px; color: #224e40; font-size: clamp(28px, 3.2vw, 43px); line-height: 1.35; letter-spacing: -1px; font-weight: 600; }
+.reception-heading p { color: #61786d; font-size: 15px; }
+.reception-stage { position: relative; isolation: isolate; min-height: 485px; }
+.reception-visual { position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse at 50% 30%, #d1e2d7, transparent 60%), linear-gradient(#eaf1ec 65%, #d6e4dc 65%); }
+.reception-visual::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(#eaf1ec, transparent 16%, transparent 88%, #e1eae3); }
+.reception-canvas, .reception-canvas canvas { display: block; width: 100%; height: 100%; }
+.reception-paths { max-width: 1190px; margin: 0 auto; padding: 105px 30px 90px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, .8fr) minmax(0, 1fr); align-items: start; gap: 28px; }
+.reception-path { text-align: left; display: flex; flex-direction: column; min-width: 0; padding: 22px; background: #fffcf5f5; border: 1px solid #fff; border-radius: 14px; box-shadow: 0 18px 35px #254d4024, 0 3px 0 #c6d5ca; transition: transform .22s, box-shadow .22s; }
+.reception-path:hover { transform: translateY(-6px); box-shadow: 0 24px 40px #254d4033, 0 3px 0 #b3c9bb; }
+.reception-path:active { transform: translateY(-1px); }
+.path-topline { display: flex; align-items: center; gap: 11px; font: 600 10px var(--font-sans); letter-spacing: 1px; color: #6c766d; }
+.path-icon { width: 47px; height: 47px; display: grid; place-items: center; border-radius: 13px; background: #f6e5df; color: #ae4e3f; }
+.reception-path > strong { margin: 17px 0 8px; font-size: clamp(22px, 2.2vw, 29px); line-height: 1.35; font-weight: 600; color: #903e32; letter-spacing: -.6px; }
+.path-description { font-size: 13px; line-height: 1.8; color: #667269; min-height: 47px; }
+.path-next { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 15px; min-height: 49px; margin-top: 22px; border-radius: 7px; font-size: 13px; font-weight: 600; background: #a84b3e; color: #fff; }
+.path-next svg { flex-shrink: 0; }
+.schedule-path .path-icon { background: #e1eee5; color: #286750; }
+.schedule-path > strong { color: #245d49; }
+.schedule-path .path-next { background: #245f4c; }
+.reception-desk-label { align-self: end; margin-bottom: -20px; text-align: center; padding: 13px 9px; color: #fff; border: 1px solid #ffffff35; border-radius: 5px; background: #285e4ee8; box-shadow: 0 6px 15px #1e3f3420; }
+.reception-desk-label > span { display: none; }
+.reception-desk-label strong { display: block; letter-spacing: 2px; font-size: 12px; }
+.reception-desk-label small { display: block; font-size: 10px; color: #d5e9db; margin-top: 4px; }
+.reception-gp-button { width: 100%; min-height: 72px; background: #a84b3e; border-color: #c67667; border-radius: 9px; transition: background .2s, box-shadow .2s; }
+.reception-gp-button:hover { background: #913e33; box-shadow: 0 8px 22px #7a322633; }
+.reception-gp-button strong { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; letter-spacing: 0; }
+.reception-gp-button small { color: #fff1eb; line-height: 1.6; }
+.reception-floor-label { position: absolute; bottom: 17px; left: 50%; transform: translateX(-50%); text-align: center; color: #587366; font-size: 17px; font-weight: 600; letter-spacing: 2px; white-space: nowrap; }
+.reception-floor-label span { display: block; margin-top: 3px; color: #738b7e; font: 9px var(--font-display); letter-spacing: 3px; }
+.reception-helpbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px 24px; padding: 13px max(24px, calc((100% - 1130px) / 2)); background: #f5f7f1; border-top: 1px solid #cfdfd3; font-size: 12px; }
+.reception-helpbar > span, .reception-helpbar a, .reception-helpbar button { display: inline-flex; align-items: center; gap: 8px; }
+.reception-helpbar > span { flex-wrap: wrap; color: #78675c; }
+.reception-helpbar a { color: #9a4438; font-weight: 600; min-height: 44px; }
+.reception-helpbar button { min-height: 44px; font-weight: 600; color: #2d6350; }
+@media (min-width: 1600px) { .reception-stage { min-height: 550px; } .reception-paths { padding-top: 145px; } }
+@media (max-width: 900px) {
+  .reception-paths { grid-template-columns: minmax(0, 1fr) 130px minmax(0, 1fr); gap: 16px; padding-left: 20px; padding-right: 20px; }
+  .reception-path { padding: 17px; }
+  .path-topline { font-size: 9px; letter-spacing: .3px; gap: 8px; }
+  .path-next { padding: 12px; font-size: 12px; }
+}
+@media (max-width: 640px) {
+  .reception-heading { padding-top: 25px; }
+  .reception-heading h1 { font-size: 28px; }
+  .reception-heading p { max-width: 290px; margin: auto; font-size: 13px; line-height: 1.7; }
+  .reception-eyebrow { font-size: 10px; }
+  .reception-stage { min-height: auto; }
+  .reception-visual { height: 280px; }
+  .reception-paths { grid-template-columns: 1fr 1fr; padding: 235px 16px 28px; gap: 12px; }
+  .reception-desk-label { position: absolute; top: 161px; left: 50%; transform: translateX(-50%); min-width: 130px; padding: 8px; }
+  .reception-desk-label small { display: none; }
+  .reception-gp-button { width: auto; min-width: 220px; min-height: 62px; }
+  .reception-gp-button small { display: block; }
+  .reception-path { padding: 15px 12px 12px; border-radius: 12px; }
+  .path-topline { flex-direction: column; align-items: flex-start; gap: 9px; }
+  .path-icon { width: 38px; height: 38px; border-radius: 10px; }
+  .path-icon svg { width: 22px; }
+  .reception-path > strong { font-size: 21px; min-height: 57px; margin-top: 13px; }
+  .path-description { font-size: 12px; min-height: 66px; }
+  .path-next { margin-top: 14px; font-size: 12px; padding: 10px; min-height: 58px; gap: 7px; }
+  .path-next svg { width: 16px; }
+  .reception-floor-label { display: none; }
+  .reception-helpbar { padding: 10px 20px; gap: 0; justify-content: center; }
+  .patient-home > .followup-access, .patient-home > .recent-section { width: calc(100% - 32px); }
+}
+@media (max-width: 360px) { .reception-paths { gap: 9px; padding-left: 12px; padding-right: 12px; } .reception-path > strong { font-size: 19px; } .path-topline { font-size: 8px; } }
