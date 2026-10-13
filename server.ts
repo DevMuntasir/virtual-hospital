@@ -1,8 +1,8 @@
-import express, { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { createAIAdapter } from './server/ai';
+import { createAIAdapter } from './server/ai.js';
 
 dotenv.config();
 
