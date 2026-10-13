@@ -1,5 +1,11 @@
 import { PatientInfo, Prescription, PatientToken, SpecialistDoctor, HospitalEmergencyUnit } from '../types/hospital';
 
+export function clinicalAIError(language: 'bn' | 'en') {
+  return language === 'en'
+    ? 'The AI model is unavailable or could not return a valid response. Please try again later.'
+    : 'AI মডেলের সঙ্গে সংযোগ হয়নি অথবা সঠিক উত্তর পাওয়া যায়নি। অনুগ্রহ করে পরে আবার চেষ্টা করুন।';
+}
+
 let speechCooldownUntil = 0;
 let speechAccountLimitReached = false;
 
@@ -13,7 +19,7 @@ export const HospitalAPI = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversation, patientInfo, language }),
     });
-    if (!res.ok) throw new Error('Failed to get triage response');
+    if (!res.ok) throw new Error(clinicalAIError(language));
     return res.json();
   },
 
@@ -24,18 +30,18 @@ export const HospitalAPI = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversation, patientInfo, tokenId, language }),
     });
-    if (!res.ok) throw new Error('Failed to generate draft prescription');
+    if (!res.ok) throw new Error(clinicalAIError(language));
     return res.json();
   },
 
   // 3. Analyze follow-up / lab report
-  async analyzeReport(data: { reportText?: string; reportType?: string; patientInfo?: PatientInfo; imageBase64?: string }) {
+  async analyzeReport(data: { language?: 'bn' | 'en'; reportText?: string; reportType?: string; patientInfo?: PatientInfo; imageBase64?: string }) {
     const res = await fetch('/api/triage/analyze-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    if (!res.ok) throw new Error('Failed to analyze medical report');
+    if (!res.ok) throw new Error(clinicalAIError(data.language || 'bn'));
     return res.json();
   },
 

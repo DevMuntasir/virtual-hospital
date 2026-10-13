@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type } from '@google/genai';
+import { createAIAdapter } from './server/ai';
 
 dotenv.config();
 
@@ -14,8 +14,8 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
-// Shared Gemini client setup as per guidelines
-const apiKey = process.env.GEMINI_API_KEY || '';
+const ai = createAIAdapter();
+if (!ai.configured) console.warn(`${ai.provider} API key is missing; clinical AI requests will return an unavailable error.`);
 const openaiApiKey = process.env.OPENAI_API_KEY || '';
 const openaiLimitCodes = new Set([
   'credit_balance_exhausted',
@@ -38,15 +38,6 @@ async function openaiErrorDetails(response: globalThis.Response) {
     retryAfter: response.headers.get('retry-after') || '',
   };
 }
-const ai = new GoogleGenAI({
-  apiKey,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
-
 // Seed data stores
 const specialistsStore = [
   {
@@ -475,94 +466,13 @@ let tokensStore: any[] = [
   },
 ];
 
-// Helper for fallback AI clinical triage when API key is missing or quota reached
-function getFallbackTriageResponse(userMessage: string, historyLength: number, language: string) {
-  const isBengali = language !== 'en';
-  const textLower = userMessage.toLowerCase();
-
-  // Detect critical red flags
-  const isRedFlag =
-    textLower.includes('বুকে ব্যথা') ||
-    textLower.includes('বুকের ব্যথা') ||
-    textLower.includes('chest pain') ||
-    textLower.includes('শ্বাসকষ্ট') ||
-    textLower.includes('breath') ||
-    textLower.includes('অবশ') ||
-    textLower.includes('কথা জড়িয়ে') ||
-    textLower.includes('stroke') ||
-    textLower.includes('অজ্ঞান');
-
-  if (isRedFlag) {
-    return {
-      reply: isBengali
-        ? '⚠️ জরুরি সতর্কতা: আপনার দেওয়া উপসর্গে (বুকে ব্যথা বা তীব্র শ্বাসকষ্ট বা অবশ ভাব) জরুরি জটিলতার লক্ষণ নির্দেশ করছে। আমাদের ভার্চুয়াল ব্যবস্থা থেকে অবিলম্বে নিকটস্থ হাসপাতালের জরুরি বিভাগে (ER) যাওয়া বা অ্যাম্বুলেন্স (৯৯৯) ডাকার পরামর্শ দেওয়া হচ্ছে। আমি তাৎক্ষণিক ট্রায়াজ কোড RED দিয়ে রিপোর্ট তৈরি করছি যা নিকটস্থ হাসপাতালে পাঠানো যাবে।'
-        : '⚠️ EMERGENCY ALERT: The symptoms you described indicate potential critical red-flag signs. You must immediately visit the nearest Hospital Emergency Room (ER) or call 999. I have marked this triage as CODE RED and prepared an instant dispatch referral slip.',
-      isQuestion: false,
-      isRedFlagWarning: true,
-      readyForDraft: true,
-      triageCode: 'RED',
-      suggestedQuickReplies: isBengali
-        ? ['নিকটস্থ জরুরি হাসপাতাল খুঁজুন', 'জরুরি রেফারেল স্লিপ তৈরি করুন', 'অ্যাম্বুলেন্স কল করুন']
-        : ['Find Emergency Hospital', 'Generate ER Referral Slip', 'Call 999'],
-    };
-  }
-
-  if (historyLength <= 1) {
-    return {
-      reply: isBengali
-        ? 'আমি বিষয়টি বুঝতে পেরেছি। দয়া করে বলুন: এই সমস্যাটি আপনার কতদিন ধরে হচ্ছে? ব্যথা বা অস্বস্তির তীব্রতা ১ থেকে ১০ এর স্কেলে কেমন? এছাড়া এর সাথে জ্বর, বমি বা মাথা ঘোরার মতো কোনো লক্ষণ আছে কি?'
-        : 'Thank you for sharing. Could you specify: How long have you been experiencing this? On a scale of 1 to 10, how severe is it? Are you also having fever, dizziness, or vomiting?',
-      isQuestion: true,
-      readyForDraft: false,
-      triageCode: 'GREEN',
-      suggestedQuickReplies: isBengali
-        ? ['আজ সকাল থেকে', '২-৩ দিন ধরে', 'তীব্রতা মাঝারি (৪-৬)', 'জ্বর নেই, বমি ভাব আছে']
-        : ['Since this morning', 'Past 2-3 days', 'Moderate (4-6)', 'No fever, mild nausea'],
-    };
-  } else if (historyLength === 2) {
-    return {
-      reply: isBengali
-        ? 'ধন্যবাদ বিস্তারিত জানানোর জন্য। আপনার কি অতীতে কোনো স্থায়ী শারীরিক সমস্যা আছে (যেমন: উচ্চ রক্তচাপ, ডায়াবেটিস, গ্যাস্ট্রিক, বা হাঁপানি)? এছাড়া বর্তমানে কোনো ওষুধ নিয়মিত খাচ্ছেন বা কোনো ওষুধে অ্যালার্জি আছে?'
-        : 'Understood. Do you have any chronic conditions (such as Hypertension, Diabetes, Asthma, or Kidney disease)? Are you currently taking any daily medicines or have allergies?',
-      isQuestion: true,
-      readyForDraft: false,
-      triageCode: 'GREEN',
-      suggestedQuickReplies: isBengali
-        ? ['গ্যাস্ট্রিক ও প্রেশার আছে', 'ডায়াবেটিস আছে', 'কোনো ওষুধে অ্যালার্জি নেই', 'কোনো রোগ নেই']
-        : ['Have Gastric & BP', 'Have Diabetes', 'No known allergies', 'Generally healthy'],
-    };
-  } else if (historyLength <= 5) {
-    const questions = {
-      3: isBengali
-        ? 'আপনার লিঙ্গ ও রক্তের গ্রুপ কী? জানা না থাকলে বা জানাতে না চাইলে বলুন।'
-        : 'What are your gender and blood group? You can say if you do not know or prefer not to answer.',
-      4: isBengali
-        ? 'আপনার রক্তচাপ, নাড়ির স্পন্দন, তাপমাত্রা বা অক্সিজেনের মাত্রা মাপা আছে কি? জানা থাকলে মানগুলো বলুন, না জানা থাকলে সেটিও বলুন।'
-        : 'Do you have measured blood pressure, pulse, temperature or oxygen saturation? Share any known readings, or say if they are unavailable.',
-      5: isBengali
-        ? 'আপনার সমস্যার সঙ্গে আর কোনো উপসর্গ আছে কি? আরও কোনো গুরুত্বপূর্ণ তথ্য বা আগের রিপোর্ট জানাতে চান?'
-        : 'Are there any other symptoms with your main concern? Is there any other important information or previous report you would like to share?',
-    };
-    return {
-      reply: questions[historyLength as 3 | 4 | 5],
-      isQuestion: true,
-      readyForDraft: false,
-      triageCode: 'GREEN',
-      suggestedQuickReplies: [],
-    };
-  } else {
-    return {
-      reply: isBengali
-        ? 'আপনার দেওয়া সকল ক্লিনিক্যাল তথ্যাদি সফলভাবে যাচাই করা হয়েছে। প্রাথমিক ট্রায়াজ অনুযায়ী আপনার জন্য একটি স্ট্রাকচার্ড খসড়া ব্যবস্থাপত্র (Draft Prescription) ও বিশেষজ্ঞ পরামর্শ তৈরি করা হয়েছে। মনে রাখবেন, সরকারি নিয়ম ও রোগীর নিরাপত্তার স্বার্থে এই প্রেসক্রিপশনটি একজন বিশেষজ্ঞ ডাক্তারের অনুমোদন (Approve) না পাওয়া পর্যন্ত কার্যকর হবে না।'
-        : 'I have gathered sufficient clinical details for initial triage investigation. A structured draft prescription and clinical advice has been formulated. Note that for patient safety, this draft remains PENDING until verified and digitally signed by an on-duty specialist doctor.',
-      isQuestion: false,
-      readyForDraft: true,
-      triageCode: 'GREEN',
-      suggestedQuickReplies: isBengali
-        ? ['খসড়া প্রেসক্রিপশন ও রেফারেল দেখুন', 'ডাক্তারের অনুমোদনের জন্য পাঠান']
-        : ['View Draft Prescription & Referral', 'Send for Doctor Approval'],
-    };
-  }
+function aiUnavailable(res: Response, language: string = 'bn') {
+  return res.status(503).json({
+    code: 'AI_UNAVAILABLE',
+    error: language === 'en'
+      ? 'The AI model is unavailable or could not return a valid response. Please try again later.'
+      : 'AI মডেলের সঙ্গে সংযোগ হয়নি অথবা সঠিক উত্তর পাওয়া যায়নি। অনুগ্রহ করে পরে আবার চেষ্টা করুন।',
+  });
 }
 
 // 1. API: Triage Live Chat (Interactive AI GP)
@@ -575,11 +485,7 @@ app.post('/api/triage/chat', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Conversation array is required' });
     }
 
-    const latestUserMsg = conversation[conversation.length - 1]?.text || '';
-    const userTurns = conversation.filter((m) => m.sender === 'patient').length;
-
-    // Use Gemini if key is provided
-    if (apiKey) {
+    if (ai.configured) {
       try {
         const systemPrompt = `You are "Dr. Shasthya (ডাঃ স্বাস্থ্যসেবা)", a compassionate, experienced Senior Emergency & Clinical Triage General Physician (GP) at "ShasthyaSheba Virtual Hospital" in Bangladesh.
 Your goal is to conduct a fast, empathetic, and clinically rigorous virtual triage investigation for an incoming patient who took an emergency/fast-track token.
@@ -610,32 +516,22 @@ RULES FOR TRIAGE:
   "suggestedQuickReplies": string[] (3-4 short convenient responses for patient to tap)
 }`;
 
-        const geminiMessages = conversation.map((msg: any) => ({
-          role: msg.sender === 'patient' ? 'user' : 'model',
-          parts: [{ text: msg.text }],
-        }));
-
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: geminiMessages as any,
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: 'application/json',
-            temperature: 0.2,
-          },
+        const parsed = await ai.generateJson({
+          instructions: systemPrompt,
+          messages: conversation.map((msg: any) => ({
+            role: msg.sender === 'patient' ? 'user' : 'assistant',
+            text: msg.text,
+          })),
+          temperature: 0.2,
         });
-
-        const outputText = response.text?.trim() || '{}';
-        const parsed = JSON.parse(outputText);
+        if (typeof parsed.reply !== 'string' || !parsed.reply.trim()) throw new Error('AI returned no reply');
         return res.json(parsed);
-      } catch (geminiErr: any) {
-        console.warn('Gemini chat error, falling back to algorithmic triage:', geminiErr?.message);
+      } catch (aiErr: any) {
+        console.warn(`${ai.provider} chat error, generation failed:`, aiErr?.message);
       }
     }
 
-    // Graceful fallback
-    const fallback = getFallbackTriageResponse(latestUserMsg, userTurns, language);
-    return res.json(fallback);
+    return aiUnavailable(res, language);
   } catch (err: any) {
     console.error('Triage chat endpoint error:', err);
     res.status(500).json({ error: 'Failed to process triage consultation' });
@@ -650,7 +546,7 @@ app.post('/api/triage/finalize', async (req: Request, res: Response) => {
 
     let prescriptionData: any = null;
 
-    if (apiKey) {
+    if (ai.configured) {
       try {
         const fullTranscript = conversation
           .map((m: any) => `${m.sender.toUpperCase()}: ${m.text}`)
@@ -711,78 +607,21 @@ CLINICAL DIRECTIVES:
   }
 }`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: 'Generate the structured clinical triage report and draft prescription.',
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: 'application/json',
-            temperature: 0.1,
-          },
+        const parsed = await ai.generateJson({
+          instructions: systemPrompt,
+          messages: [{ role: 'user', text: 'Generate the structured clinical triage report and draft prescription.' }],
+          temperature: 0.1,
         });
-
-        const parsed = JSON.parse(response.text?.trim() || '{}');
+        if (!['GREEN', 'AMBER', 'RED'].includes(parsed.triageCode) ||
+            typeof parsed.clinicalSummary !== 'string' || !parsed.clinicalSummary.trim() ||
+            !Array.isArray(parsed.medicines)) throw new Error('AI returned an invalid prescription');
         prescriptionData = parsed;
-      } catch (geminiErr: any) {
-        console.warn('Gemini finalize error, using rule-based generator:', geminiErr?.message);
+      } catch (aiErr: any) {
+        console.warn(`${ai.provider} finalize error, generation failed:`, aiErr?.message);
       }
     }
 
-    // Fallback if needed
-    if (!prescriptionData) {
-      prescriptionData = {
-        triageCode: 'GREEN',
-        urgencyLabel: 'Stable Condition - Virtual Clinical Guidance & Draft Rx',
-        clinicalSummary: `Patient ${patientInfo?.name || ''} investigated via AI Triage. Symptoms analyzed based on reported history. Condition assessed as stable for virtual outpatient guidance with specialist sign-off.`,
-        differentialDiagnosis: ['Viral Illness / Acute Upper Respiratory Symptoms', 'Acute Dyspepsia / Mild Gastric Discomfort'],
-        redFlagWarnings: [],
-        medicines: [
-          {
-            id: 'm-fb-1',
-            brandName: 'Napa Extend / Fast',
-            genericName: 'Paracetamol',
-            form: 'Tablet',
-            strength: '500mg',
-            dosage: '1 + 1 + 1',
-            timing: 'After meal (ভরা পেটে)',
-            duration: '3-5 days',
-            instructions: 'জ্বর বা ব্যথার জন্য ভরা পেটে খাবেন।',
-          },
-          {
-            id: 'm-fb-2',
-            brandName: 'Pantonix / Sergel',
-            genericName: 'Pantoprazole',
-            form: 'Tablet',
-            strength: '20mg',
-            dosage: '1 + 0 + 1',
-            timing: 'Before meal (খাবার আগে)',
-            duration: '7 days',
-            instructions: 'সকাল ও রাতে খাবার ২০ মিনিট আগে।',
-          },
-          {
-            id: 'm-fb-3',
-            brandName: 'Fexo',
-            genericName: 'Fexofenadine HCl',
-            form: 'Tablet',
-            strength: '120mg',
-            dosage: '0 + 0 + 1',
-            timing: 'After meal (ভরা পেটে)',
-            duration: '5 days',
-            instructions: 'সর্দি বা অ্যালার্জির জন্য রাতে ১টি।',
-          },
-        ],
-        investigationsAdvised: ['CBC with ESR (if symptoms last > 3 days)'],
-        lifestyleAdvice: ['পর্যাপ্ত বিশ্রাম নিন ও কুসুম গরম পানি পান করুন', 'পুষ্টিকর সহজপাচ্য তরল খাবার গ্রহণ করুন'],
-        warningSigns: ['জ্বর ১০২ ডিগ্রির বেশি স্থায়ী হলে বা শ্বাসকষ্ট দেখা দিলে দ্রুত হাসপাতালে যোগাযোগ করুন'],
-        referralDetails: {
-          department: 'Medicine',
-          hospitalName: 'Dhaka Medical College Hospital',
-          reason: 'Review and confirmation of treatment if symptoms persist.',
-          priority: 'Routine (সাধারণ)',
-          facilityType: 'Specialist Chamber',
-        },
-      };
-    }
+    if (!prescriptionData) return aiUnavailable(res, language);
 
     // Attach metadata and assign IDs to medicines
     const newRxId = `rx-${Date.now()}`;
@@ -790,13 +629,13 @@ CLINICAL DIRECTIVES:
 
     const formattedMedicines = (prescriptionData.medicines || []).map((m: any, idx: number) => ({
       id: m.id || `med-${Date.now()}-${idx}`,
-      brandName: m.brandName || 'Medicine',
+      brandName: m.brandName || '',
       genericName: m.genericName || '',
-      form: m.form || 'Tablet',
-      strength: m.strength || 'Standard',
-      dosage: m.dosage || '1 + 0 + 1',
-      timing: m.timing || 'After meal (ভরা পেটে)',
-      duration: m.duration || '5 days',
+      form: m.form || '',
+      strength: m.strength || '',
+      dosage: m.dosage || '',
+      timing: m.timing || '',
+      duration: m.duration || '',
       instructions: m.instructions || '',
     }));
 
@@ -806,7 +645,7 @@ CLINICAL DIRECTIVES:
       tokenNumber,
       patient: patientInfo,
       createdAt: new Date().toISOString(),
-      triageCode: prescriptionData.triageCode || 'GREEN',
+      triageCode: prescriptionData.triageCode,
       urgencyLabel: prescriptionData.urgencyLabel || 'Clinical Assessment Ready',
       clinicalSummary: prescriptionData.clinicalSummary || '',
       differentialDiagnosis: prescriptionData.differentialDiagnosis || [],
@@ -860,7 +699,7 @@ app.post('/api/triage/analyze-report', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Report text or image is required' });
     }
 
-    if (apiKey) {
+    if (ai.configured) {
       try {
         const systemPrompt = `You are a Senior Clinical Pathologist and Tele-investigation Consultant at ShasthyaSheba Virtual Hospital.
 Analyze the provided medical report (e.g. CBC, Lipid Profile, Blood Glucose, X-ray, ECG, Urine R/E).
@@ -884,60 +723,23 @@ Respond in JSON strictly:
   "suggestedSpecialty": string
 }`;
 
-        const parts: any[] = [];
-        if (imageBase64) {
-          parts.push({
-            inlineData: {
-              mimeType: 'image/jpeg',
-              data: imageBase64.replace(/^data:image\/\w+;base64,/, ''),
-            },
-          });
-        }
-        parts.push({
-          text: `Report type: ${reportType || 'General Lab Report'}\nPatient details: ${JSON.stringify(patientInfo || {})}\nReport content or clinical notes: ${reportText || 'Examine attached report image.'}`,
+        const parsed = await ai.generateJson({
+          instructions: systemPrompt,
+          messages: [{
+            role: 'user',
+            text: `Report type: ${reportType || 'General Lab Report'}\nPatient details: ${JSON.stringify(patientInfo || {})}\nReport content or clinical notes: ${reportText || 'Examine attached report image.'}`,
+            image: imageBase64,
+          }],
         });
-
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: { parts },
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: 'application/json',
-          },
-        });
-
-        const parsed = JSON.parse(response.text?.trim() || '{}');
+        if (typeof parsed.overallImpression !== 'string' || !parsed.overallImpression.trim() ||
+            !Array.isArray(parsed.abnormalFindings)) throw new Error('AI returned an invalid report');
         return res.json(parsed);
-      } catch (geminiErr: any) {
-        console.warn('Gemini report analysis error, falling back:', geminiErr?.message);
+      } catch (aiErr: any) {
+        console.warn(`${ai.provider} report analysis failed:`, aiErr?.message);
       }
     }
 
-    // Fallback response for report analysis
-    return res.json({
-      reportTitle: reportType || 'Routine Medical Lab Report',
-      testDate: new Date().toLocaleDateString('bn-BD'),
-      overallImpression: 'রিপোর্টটি পর্যালোচনা করে দেখা গেছে অধিকাংশ সূচক স্বাভাবিক মাত্রার কাছাকাছি। তবে নিয়মিত ফলোআপ বজায় রাখা জরুরি।',
-      abnormalFindings: [
-        {
-          testName: 'Hemoglobin (Hb)',
-          observedValue: '12.4 g/dL',
-          referenceRange: '12.0 - 15.5 g/dL',
-          status: 'NORMAL',
-          clinicalSignificance: 'রক্তস্বল্পতা নেই, হিমোগ্লোবিন সন্তোষজনক।',
-        },
-        {
-          testName: 'Serum Cholesterol (Total)',
-          observedValue: '215 mg/dL',
-          referenceRange: '< 200 mg/dL',
-          status: 'HIGH',
-          clinicalSignificance: 'কোলেস্টেরলের মাত্রা কিছুটা বেশি। খাদ্যতালিকায় তেল-চর্বি নিয়ন্ত্রণ করা প্রয়োজন।',
-        },
-      ],
-      doctorRecommendation: 'লিপিড প্রোফাইল নিয়ন্ত্রণের জন্য তৈলাক্ত খাবার কমান এবং দিনে ৩০ মিনিট হাঁটুন। প্রেসক্রিপশন সমন্বয়ের জন্য মেডিসিন বা কার্ডিওলজি বিশেষজ্ঞের সাথে পরামর্শ করুন।',
-      requiresChamberVisit: false,
-      suggestedSpecialty: 'Internal Medicine',
-    });
+    return aiUnavailable(res, req.body.language);
   } catch (err: any) {
     console.error('Report analysis error:', err);
     res.status(500).json({ error: 'Failed to analyze lab report' });

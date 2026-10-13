@@ -12,7 +12,7 @@ import {
   Stethoscope,
   ArrowRight
 } from 'lucide-react';
-import { HospitalAPI } from '../services/api';
+import { HospitalAPI, clinicalAIError } from '../services/api';
 import { translations } from '../translations';
 
 interface ReportReviewModalProps {
@@ -63,8 +63,10 @@ export const ReportReviewModal: React.FC<ReportReviewModalProps> = ({
   const handleRunAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsAnalyzing(true);
+    setAnalysisResult(null);
     try {
       const result = await HospitalAPI.analyzeReport({
+        language,
         reportText,
         reportType,
         patientInfo: {
@@ -77,7 +79,7 @@ export const ReportReviewModal: React.FC<ReportReviewModalProps> = ({
       setAnalysisResult(result);
     } catch (err) {
       console.error(err);
-      alert(isBn ? 'রিপোর্ট বিশ্লেষণে সমস্যা হয়েছে।' : 'Failed to analyze report.');
+      alert(clinicalAIError(language));
     } finally {
       setIsAnalyzing(false);
     }

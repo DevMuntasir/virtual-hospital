@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Mic, MicOff, Volume2, VolumeX, ArrowLeft, FileText, ChevronRight, Stethoscope, ShieldCheck, MessageCircle, Globe2, PhoneCall, Keyboard, Pause, Play, X } from 'lucide-react';
 import { PatientToken, ChatMessage, Prescription, UrgencyCode } from '../types/hospital';
-import { HospitalAPI } from '../services/api';
+import { HospitalAPI, clinicalAIError } from '../services/api';
 import { startBrowserTranscription, startLiveTranscription, type LiveTranscription } from '../services/liveTranscription';
 
 interface TriageRoomProps {
@@ -21,21 +21,8 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
 }) => {
   const isBn = language === 'bn';
 
-  // Initial welcome message from Dr. Shasthya
-  const initialGreeting = isBn
-    ? `স্বাগতম, ${token.patient.name}। সময় নিয়ে বলুন, আজ আপনার কী সমস্যা হচ্ছে?`
-    : `Welcome, ${token.patient.name}. Take your time. What is bothering you today?`;
-
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'm-init',
-      sender: 'ai',
-      text: initialGreeting,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isQuestion: true,
-
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [aiError, setAiError] = useState('');
 
   const [inputText, setInputText] = useState('');
   const [isAiThinking, setIsAiThinking] = useState(false);
@@ -219,6 +206,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
     transcriptionRef.current = null;
     stopAudio();
     setCanFinalize(false);
+    setAiError('');
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -239,10 +227,13 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
         language
       );
 
+      if (typeof aiResponse.reply !== 'string' || !aiResponse.reply.trim()) {
+        throw new Error('AI returned no reply');
+      }
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
         sender: 'ai',
-        text: aiResponse.reply || (isBn ? 'আপনার বিবরণটি বিবেচনা করা হয়েছে।' : 'Your input has been recorded.'),
+        text: aiResponse.reply,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         isQuestion: aiResponse.isQuestion ?? false,
         isRedFlagWarning: aiResponse.isRedFlagWarning ?? false,
@@ -259,16 +250,10 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
       setCanFinalize(aiResponse.readyForDraft === true);
     } catch (err) {
       console.error(err);
-      const fallbackAi: ChatMessage = {
-        id: `ai-err-${Date.now()}`,
-        sender: 'ai',
-        text: isBn
-          ? 'সংযোগে সমস্যা হয়েছে। আপনার উত্তরটি আবার পাঠান, যাতে তথ্য সংগ্রহ চালিয়ে যেতে পারি।'
-          : 'There was a connection problem. Please send your answer again so we can continue gathering your details.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isQuestion: false,
-      };
-      setMessages((prev) => [...prev, fallbackAi]);
+      setAiError(clinicalAIError(language));
+      setMessages(messages);
+      setInputText(textToSend);
+      setShowText(true);
       setCanFinalize(false);
     } finally {
       setIsAiThinking(false);
@@ -280,6 +265,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
     if (!canFinalize || isAiThinking || isFinalizing) return;
     stopAudio();
     setIsFinalizing(true);
+    setAiError('');
     try {
       const rx = await HospitalAPI.finalizeTriage(
         messages,
@@ -290,7 +276,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
       onPrescriptionGenerated(rx);
     } catch (err) {
       console.error('Finalize error', err);
-      alert(isBn ? 'প্রেসক্রিপশন তৈরিতে সমস্যা হয়েছে। আবার চেষ্টা করুন।' : 'Failed to finalize draft prescription.');
+      setAiError(clinicalAIError(language));
     } finally {
       setIsFinalizing(false);
     }
@@ -334,6 +320,8 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
           : (isBn ? 'আপনার জন্য বিশেষজ্ঞের পরামর্শ প্রয়োজন।' : 'Specialist attention is recommended for you.')}</p>
       </div>}
 
+      {aiError && <div className="consultation-alert" role="alert">{aiError}</div>}
+      {!messages.length && !isAiThinking && !aiError && <p className="consultation-alert">{isBn ? 'পরামর্শ শুরু করতে আপনার সমস্যাটি লিখুন বা বলুন।' : 'Describe your concern to start the consultation.'}</p>}
       <section className="consultation-space" aria-label={isBn ? 'পরামর্শের ঘর' : 'Consultation room'}>
         <div className="chamber-stage">
           <div className={`conversation-messages ${showHistory ? 'history-open' : ''}`} ref={chatRef} role="log" aria-live="polite" aria-relevant="additions" aria-label={isBn ? 'কথোপকথনের বার্তা' : 'Conversation messages'}>
@@ -345,7 +333,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
                   {playingAudioId === msg.id ? (isBn ? 'বন্ধ করুন' : 'Stop audio') : (isBn ? 'শুনুন' : 'Listen')}
                 </button>}
               </div>
-              {msg === latestMessage && msg.sender === 'ai' && !!msg.quickReplies?.length && <div className="care-quick-replies">{msg.quickReplies.map((reply, idx) => <button key={idx} disabled={busy || isRecording} onClick={() => handleSendMessage(reply)}>{reply}</button>)}</div>}
+              {!aiError && msg === latestMessage && msg.sender === 'ai' && !!msg.quickReplies?.length && <div className="care-quick-replies">{msg.quickReplies.map((reply, idx) => <button key={idx} disabled={busy || isRecording} onClick={() => handleSendMessage(reply)}>{reply}</button>)}</div>}
             </div>)}
             {isAiThinking && <div className="care-thinking" role="status"><span /><span /><span /><p>{isBn ? 'আপনার উত্তরটি পড়ছি…' : 'Reading your answer…'}</p></div>}
           </div>
