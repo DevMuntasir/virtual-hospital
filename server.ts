@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { createAIAdapter } from './server/ai.js';
+import { generateGeminiSpeech, SpeechError } from './server/speech.js';
 
 dotenv.config();
 
@@ -527,7 +528,15 @@ RULES FOR TRIAGE:
         if (typeof parsed.reply !== 'string' || !parsed.reply.trim()) throw new Error('AI returned no reply');
         return res.json(parsed);
       } catch (aiErr: any) {
-        console.warn(`${ai.provider} chat error, generation failed:`, aiErr?.message);
+        if (aiErr?.status === 429) {
+          return res.status(429).json({
+            code: 'AI_RATE_LIMITED',
+            error: language === 'en'
+              ? 'The AI service request quota has been reached. Please try again after the quota resets.'
+              : 'AI সেবার অনুরোধের কোটা শেষ হয়েছে। কোটা পুনরায় চালু হলে আবার চেষ্টা করুন।',
+          });
+        }
+        console.warn(`${ai.provider} chat generation failed; status:`, aiErr?.status || 'unknown');
       }
     }
 
@@ -805,6 +814,10 @@ app.post('/api/tts', async (req: Request, res: Response) => {
     if (typeof text !== 'string' || !text.trim() || text.length > 4000) {
       return res.status(400).json({ error: 'Text must be between 1 and 4000 characters' });
     }
+    if (ai.provider === 'gemini') {
+      const audioBase64 = await generateGeminiSpeech(text.trim(), language);
+      return res.json({ audioBase64, provider: 'gemini' });
+    }
     if (!openaiApiKey) {
       return res.status(503).json({ error: 'OPENAI_API_KEY is not configured' });
     }
@@ -843,8 +856,12 @@ app.post('/api/tts', async (req: Request, res: Response) => {
     const audioBase64 = Buffer.from(await speech.arrayBuffer()).toString('base64');
     return res.json({ audioBase64 });
   } catch (err: any) {
-    console.warn('OpenAI speech error:', err?.message);
-    res.status(502).json({ error: 'Could not generate speech' });
+    if (err instanceof SpeechError) {
+      if (err.retryAfter) res.set('Retry-After', err.retryAfter);
+      return res.status(err.status).json({ error: err.message, code: err.code, retryAfter: err.retryAfter, provider: 'gemini' });
+    }
+    console.warn(`${ai.provider} speech error:`, err?.name);
+    res.status(502).json({ error: 'Could not generate speech', provider: ai.provider });
   }
 });
 

@@ -1,7 +1,8 @@
+import { useDoctorSpeech, restingFace } from '../hooks/useDoctorSpeech';
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, Mic, MicOff, Volume2, VolumeX, ArrowLeft, FileText, ChevronRight, Stethoscope, ShieldCheck, MessageCircle, Globe2, PhoneCall, Keyboard, Pause, Play, X } from 'lucide-react';
 import { PatientToken, ChatMessage, Prescription, UrgencyCode } from '../types/hospital';
-import { HospitalAPI, clinicalAIError } from '../services/api';
+import { HospitalAPI, clinicalAIError, ClinicalRequestError } from '../services/api';
 import { startBrowserTranscription, startLiveTranscription, type LiveTranscription } from '../services/liveTranscription';
 
 interface TriageRoomProps {
@@ -41,12 +42,13 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
   const [motionEnabled, setMotionEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [reportText, setReportText] = useState('');
+  const speechFace = useDoctorSpeech();
+  const face = motionEnabled && isSpeaking ? speechFace.face : restingFace;
 
   const roomRef = useRef<HTMLDivElement>(null);
   const answerRef = useRef<HTMLTextAreaElement>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const transcriptionRef = useRef<LiveTranscription | null>(null);
-  const voiceConversationRef = useRef(false);
   const audioRequestRef = useRef(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -77,6 +79,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
 
   const stopAudio = () => {
     audioRequestRef.current += 1;
+    speechFace.stop();
     audioRef.current?.pause();
     window.speechSynthesis?.cancel();
     setPlayingAudioId(null);
@@ -114,7 +117,6 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
       setInputText(finalText);
       setIsTranscribing(false);
       setIsRecording(false);
-      voiceConversationRef.current = !!finalText.trim();
       if (!finalText.trim()) setVoiceError(isBn ? 'কথা বোঝা যায়নি। আবার বলুন অথবা লিখুন।' : 'No speech was detected. Try again or type.');
     };
     const onError = () => {
@@ -155,6 +157,8 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
     const wasPlaying = playingAudioId === message.id;
     stopAudio();
     if (wasPlaying) return;
+    setVoiceError('');
+    speechFace.prepare();
     transcriptionRef.current?.close();
     transcriptionRef.current = null;
     const requestId = audioRequestRef.current;
@@ -167,33 +171,69 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
       if (requestId !== audioRequestRef.current) return;
       if (speech.issue) {
         setVoiceError(speech.issue === 'account'
-          ? (isBn ? 'OpenAI ভয়েসের ক্রেডিট বা খরচের সীমা শেষ। ডিভাইসের কণ্ঠ ব্যবহার হচ্ছে।' : 'OpenAI voice credits or spend limit reached. Using your device voice.')
+          ? (isBn ? 'AI ভয়েসের ক্রেডিট বা খরচের সীমা শেষ। ডিভাইসের কণ্ঠ চালুর চেষ্টা হচ্ছে।' : 'AI voice credits or spend limit reached. Trying your device voice.')
           : speech.issue === 'rate'
-            ? (isBn ? 'OpenAI ভয়েসের অনুরোধের সীমা হয়েছে। ডিভাইসের কণ্ঠ ব্যবহার হচ্ছে।' : 'OpenAI voice rate limit reached. Using your device voice.')
-            : (isBn ? 'OpenAI ভয়েস পাওয়া যায়নি। ডিভাইসের কণ্ঠ ব্যবহার হচ্ছে।' : 'OpenAI voice is unavailable. Using your device voice.'));
+            ? (isBn ? 'AI ভয়েসের অনুরোধের সীমা হয়েছে। ডিভাইসের কণ্ঠ ব্যবহার হচ্ছে।' : 'AI voice rate limit reached. Using your device voice.')
+            : (isBn ? 'AI ভয়েস পাওয়া যায়নি। ডিভাইসের কণ্ঠ ব্যবহার হচ্ছে।' : 'AI voice is unavailable. Using your device voice.'));
       }
       if (base64) {
         message.audioBase64 = base64;
         const audio = new Audio(`data:audio/wav;base64,${base64}`);
         audioRef.current = audio;
-        audio.onplaying = () => { if (requestId === audioRequestRef.current) setIsSpeaking(true); };
-        audio.onended = audio.onerror = () => { if (requestId === audioRequestRef.current) { setPlayingAudioId(null); setIsSpeaking(false); } };
+        const tracked = speechFace.follow(audio);
+        audio.onplaying = () => {
+          if (requestId !== audioRequestRef.current) return;
+          setIsSpeaking(true);
+          if (!tracked) speechFace.approximate(message.text, audio);
+        };
+        audio.onpause = audio.onwaiting = () => {
+          if (requestId === audioRequestRef.current) setIsSpeaking(false);
+        };
+        audio.onended = () => { if (requestId === audioRequestRef.current) { setPlayingAudioId(null); setIsSpeaking(false); speechFace.stop(); } };
+        audio.onerror = () => {
+          if (requestId !== audioRequestRef.current) return;
+          stopAudio();
+          setVoiceError(isBn ? 'অডিও চালু হয়নি। উত্তরের নিচে “শুনুন” চাপুন।' : 'Audio could not play. Press “Listen” below the response.');
+        };
         await audio.play();
       } else if (window.speechSynthesis) {
         const utterance = new SpeechSynthesisUtterance(message.text);
         utterance.lang = isBn ? 'bn-BD' : 'en-US';
-        utterance.onstart = () => { if (requestId === audioRequestRef.current) setIsSpeaking(true); };
-        utterance.onend = utterance.onerror = () => { if (requestId === audioRequestRef.current) { setPlayingAudioId(null); setIsSpeaking(false); } };
+        let fallback: ReturnType<typeof speechFace.approximate> | undefined;
+        utterance.onstart = () => {
+          if (requestId !== audioRequestRef.current) return;
+          setIsSpeaking(true);
+          fallback = speechFace.approximate(message.text);
+        };
+        utterance.onboundary = (event) => { if (requestId === audioRequestRef.current) fallback?.boundary(event); };
+        utterance.onpause = () => { if (requestId === audioRequestRef.current) { fallback?.pause(); setIsSpeaking(false); } };
+        utterance.onresume = () => { if (requestId === audioRequestRef.current) { fallback?.resume(); setIsSpeaking(true); } };
+        utterance.onend = () => { if (requestId === audioRequestRef.current) { setPlayingAudioId(null); setIsSpeaking(false); speechFace.stop(); } };
+        utterance.onerror = (event) => {
+          if (requestId !== audioRequestRef.current) return;
+          stopAudio();
+          setVoiceError(speech.issue === 'account'
+            ? (isBn ? 'AI ভয়েসের ক্রেডিট শেষ এবং ডিভাইসের কণ্ঠও চালু হয়নি। ভয়েস provider-এর API billing-এ credit যোগ করুন বা spend limit ঠিক করুন, তারপর “শুনুন” চাপুন।' : 'AI voice credits are exhausted and device speech failed. Add API credits or adjust the spend limit, then press “Listen”.')
+            : event.error === 'not-allowed'
+            ? (isBn ? 'ব্রাউজার স্বয়ংক্রিয় অডিও আটকে দিয়েছে। উত্তরের নিচে “শুনুন” চাপুন।' : 'Your browser blocked automatic audio. Press “Listen” below the response.')
+            : (isBn ? 'ডিভাইসের কণ্ঠ চালু হয়নি। উত্তরের নিচে “শুনুন” চাপ দিয়ে আবার চেষ্টা করুন।' : 'Device speech failed. Press “Listen” below the response to retry.'));
+        };
         window.speechSynthesis.speak(utterance);
       } else {
+        speechFace.stop();
         setPlayingAudioId(null);
-        setVoiceError(isBn ? 'এখন অডিও শোনা যাচ্ছে না। উত্তরটি উপরে পড়তে পারেন।' : 'Audio is unavailable. You can read the response above.');
+        setVoiceError(speech.issue === 'account'
+          ? (isBn ? 'AI ভয়েসের ক্রেডিট শেষ। ভয়েস provider-এর API billing-এ credit যোগ করুন বা spend limit ঠিক করুন, তারপর “শুনুন” চাপুন।' : 'AI voice credits are exhausted. Add API credits or adjust the spend limit, then press “Listen”.')
+          : (isBn ? 'এখন অডিও শোনা যাচ্ছে না। উত্তরটি উপরে পড়তে পারেন।' : 'Audio is unavailable. You can read the response above.'));
       }
-    } catch {
+    } catch (error) {
       if (requestId === audioRequestRef.current) {
+        speechFace.stop();
         setIsSpeaking(false);
         setPlayingAudioId(null);
-        setVoiceError(isBn ? 'অডিও চালু হয়নি। আবার চেষ্টা করুন।' : 'Audio could not play. Please try again.');
+        setVoiceError(error instanceof DOMException && error.name === 'NotAllowedError'
+          ? (isBn ? 'ব্রাউজার স্বয়ংক্রিয় অডিও আটকে দিয়েছে। উত্তরের নিচে “শুনুন” চাপুন।' : 'Your browser blocked automatic audio. Press “Listen” below the response.')
+          : (isBn ? 'অডিও চালু হয়নি। উত্তরের নিচে “শুনুন” চাপ দিয়ে আবার চেষ্টা করুন।' : 'Audio could not play. Press “Listen” below the response to retry.'));
       }
     }
   };
@@ -205,6 +245,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
     transcriptionRef.current?.close();
     transcriptionRef.current = null;
     stopAudio();
+    const replyAudioRequest = audioRequestRef.current;
     setCanFinalize(false);
     setAiError('');
 
@@ -241,7 +282,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
       };
 
       setMessages((prev) => [...prev, aiMessage]);
-      if (voiceConversationRef.current) void handlePlayAudio(aiMessage);
+      if (replyAudioRequest === audioRequestRef.current) void handlePlayAudio(aiMessage);
 
       if (aiResponse.triageCode) {
         setCurrentUrgency(aiResponse.triageCode);
@@ -250,7 +291,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
       setCanFinalize(aiResponse.readyForDraft === true);
     } catch (err) {
       console.error(err);
-      setAiError(clinicalAIError(language));
+      setAiError(err instanceof ClinicalRequestError ? err.message : clinicalAIError(language));
       setMessages(messages);
       setInputText(textToSend);
       setShowText(true);
@@ -292,11 +333,13 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
     ? (isBn ? 'লাইভ ভয়েস সংযুক্ত হচ্ছে…' : 'Connecting live voice…')
     : isTranscribing
     ? (isBn ? 'আপনার কথা লিখছি…' : 'Finishing transcript…')
-    : playingAudioId
+    : isSpeaking
     ? (isBn ? 'আপনার সঙ্গে কথা বলছি…' : 'Speaking with you…')
+    : playingAudioId
+    ? (isBn ? 'কণ্ঠ প্রস্তুত হচ্ছে…' : 'Preparing voice…')
     : isAiThinking
     ? (isBn ? 'আপনার উত্তরটি পড়ছি…' : 'Reading your answer…')
-    : (isBn ? 'আপনার কথা শুনতে প্রস্তুত' : 'Here to listen to you');
+    : (isBn ? '' : '');
 
   return (
     <div ref={roomRef} className={`consultation-room ${showText ? 'text-entry-open' : ''} ${isRecording || isConnecting || isTranscribing ? 'voice-active' : ''} ${showReport ? 'report-entry-open' : ''}`}>
@@ -364,8 +407,18 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
               <rect x="124" y="89" width="25" height="18" rx="7" fill="none" stroke="#526457" strokeWidth="2.5" />
               <g className="doctor-eyes"><circle cx="104" cy="98" r="2" fill="#354c43" /><circle cx="136" cy="98" r="2" fill="#354c43" /></g>
               <path d="m120 101-3 11h6" fill="none" stroke="#c78f70" strokeWidth="2" strokeLinecap="round" />
-              <ellipse className="doctor-speaking-mouth" cx="120" cy="123" rx="7" ry="3" fill="#854e45" />
-              <path className="doctor-smile" d="M109 121q11 10 22 0" fill="none" stroke="#9c6052" strokeWidth="2.5" strokeLinecap="round" />
+              <path className="doctor-reduced-mouth" style={{ display: 'none' }} d="M110 123q10 3 20 0" fill="none" stroke="#9c6052" strokeWidth="2.5" strokeLinecap="round" />
+              <g className="doctor-expression">
+                <path d={`M95 ${85 - face.emphasis * 2}q9 ${-3 - face.emphasis * 2} 17 -1 M128 84q9 ${-2 - face.emphasis * 2} 17 ${1 - face.emphasis * 2}`} fill="none" stroke="#506052" strokeWidth="2.2" strokeLinecap="round" />
+                <ellipse cx="99" cy="115" rx="7" ry="3.5" fill="#cd8d79" opacity={0.08 + face.emphasis * 0.14} />
+                <ellipse cx="141" cy="115" rx="7" ry="3.5" fill="#cd8d79" opacity={0.08 + face.emphasis * 0.14} />
+                {face.open > 0.025 ? <g>
+                  <ellipse cx="120" cy={123 + face.open * 2} rx={10 - face.round * 4} ry={1 + face.open * 8} fill="#653d39" stroke="#aa6d5d" strokeWidth="1.6" />
+                  <path d={`M${114 + face.round * 2} 122q${6 - face.round * 2} 2 ${12 - face.round * 4} 0`} fill="none" stroke="#fff4df" strokeWidth={1 + face.open} strokeLinecap="round" />
+                  {face.open > 0.35 && <ellipse cx="120" cy={124 + face.open * 5} rx={3.5 - face.round} ry={face.open * 1.8} fill="#c7827a" />}
+                  <path d={`M114 ${136 + face.open * 2}q6 2 12 0`} fill="none" stroke="#c78f70" strokeWidth="1.2" opacity=".45" />
+                </g> : <path d={isSpeaking || currentUrgency === 'RED' ? 'M110 123q10 2 20 0' : 'M109 121q11 10 22 0'} fill="none" stroke="#9c6052" strokeWidth="2.5" strokeLinecap="round" />}
+              </g>
               </g>
               <path d="m100 145-14 13 10 18-8 11 18 42m34-84 14 13-10 18 8 11-18 42" fill="none" stroke="#d8e3d9" strokeWidth="2" />
               <path d="M99 153v28c0 22 33 22 33 0v-28m0 38v13h17v-17" fill="none" stroke="#416956" strokeWidth="3" strokeLinecap="round" />
@@ -392,7 +445,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
               </button>
               <button className={`care-keyboard ${showText ? 'selected' : ''}`} onClick={() => setShowText(!showText)} aria-expanded={showText} aria-controls="spoken-answer" aria-label={isBn ? 'লিখে উত্তর দিন' : 'Type your answer'}><Keyboard size={22} /></button>
             </div>
-            <p className="voice-disclosure">{isBn ? 'শোনা কণ্ঠটি AI-তৈরি, মানুষ নয়।' : 'The voice you hear is AI-generated, not a person.'}</p>
+            {/* <p className="voice-disclosure">{isBn ? 'শোনা কণ্ঠটি AI-তৈরি, মানুষ নয়।' : 'The voice you hear is AI-generated, not a person.'}</p> */}
             {voiceError && <p className="care-input-error" role="alert">{voiceError}</p>}
             {showText && <form id="spoken-answer" className="care-text-form" onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}>
               <button type="button" className="close-text-entry" onClick={() => { answerRef.current?.blur(); setShowText(false); }} aria-label={isBn ? 'কথা বলায় ফিরুন' : 'Return to voice'}><X size={18} /></button>
@@ -408,7 +461,7 @@ export const TriageRoom: React.FC<TriageRoomProps> = ({
           </div>
         </div>
       </section>
-      <p className="consultation-footnote">{isBn ? 'এই কণ্ঠ AI-তৈরি, মানুষ নয় · প্রেসক্রিপশন ডাক্তার যাচাই করবেন' : 'This voice is AI-generated, not a person · Prescriptions reviewed by a doctor'}</p>
+      {/* <p className="consultation-footnote">{isBn ? 'এই কণ্ঠ AI-তৈরি, মানুষ নয় · প্রেসক্রিপশন ডাক্তার যাচাই করবেন' : 'This voice is AI-generated, not a person · Prescriptions reviewed by a doctor'}</p> */}
 
     </div>
   );

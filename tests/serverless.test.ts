@@ -15,7 +15,7 @@ test('native ESM serverless entrypoint starts and issues tokens without an AI ke
     await mkdir(path.join(directory, 'api'));
     await mkdir(path.join(directory, 'server'));
     await writeFile(path.join(directory, 'package.json'), '{"type":"module"}');
-    for (const file of ['api/index.ts', 'server.ts', 'server/ai.ts']) {
+    for (const file of ['api/index.ts', 'server.ts', 'server/ai.ts', 'server/speech.ts']) {
       const source = await readFile(path.join(root, file), 'utf8');
       await writeFile(path.join(directory, file.replace(/\.ts$/, '.js')), stripTypeScriptTypes(source));
     }

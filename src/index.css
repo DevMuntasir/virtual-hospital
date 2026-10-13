@@ -202,13 +202,14 @@
 .room-plant span { position: absolute; bottom: 0; left: 31px; width: 52px; height: 54px; border-radius: 3px 3px 18px 18px; background: linear-gradient(90deg, #c7bba5, #e0d6c1, #bfb39b); }
 .companion-portrait { position: absolute; z-index: 2; bottom: 60px; left: 50%; transform: translateX(-50%); width: 330px; clip-path: inset(0 0 11% 0); filter: drop-shadow(8px 12px 12px #3554481a); }
 .companion-portrait svg { display: block; width: 100%; height: auto; overflow: visible; }
+@media (prefers-reduced-motion: reduce) {
+  .doctor-expression { display: none; }
+  .doctor-reduced-mouth { display: block !important; }
+}
 .doctor-body { transform-origin: 120px 230px; animation: doctor-breathe 5s ease-in-out infinite; }
 .doctor-head { transform-origin: 120px 143px; animation: doctor-attentive 9s ease-in-out infinite; }
 .doctor-eyes { transform-box: fill-box; transform-origin: center; animation: doctor-blink 5.7s infinite; }
 .doctor-hand { transform-origin: 161px 171px; animation: doctor-hand-rest 12s ease-in-out infinite; }
-.doctor-speaking-mouth { opacity: 0; transform-box: fill-box; transform-origin: center; }
-.is-speaking .doctor-speaking-mouth { opacity: 1; animation: doctor-talk .38s ease-in-out infinite alternate; }
-.is-speaking .doctor-smile { opacity: 0; }
 .is-speaking .doctor-head { animation: doctor-nod 2.4s ease-in-out infinite; }
 .is-listening .doctor-head { animation: doctor-nod 4s ease-in-out infinite; }
 .room-desk { position: absolute; z-index: 1; bottom: -3px; left: -5%; width: 110%; height: 108px; background: linear-gradient(180deg, #e5d7bd 0%, #efe2c9 66%, #b99a70 67%, #bda079 73%, #d6be99 74%, #c9af88 100%); border-top: 2px solid #f8efdc; border-radius: 50% 50% 0 0 / 24% 24% 0 0; box-shadow: 0 -9px 28px #7e745322; }
@@ -271,10 +272,7 @@
 @keyframes doctor-blink { 0%, 42%, 46%, 74%, 78%, 100% { transform: scaleY(1); } 44%, 76% { transform: scaleY(.1); } }
 @keyframes doctor-nod { 0%, 100% { transform: rotate(0) translateY(0); } 45% { transform: rotate(1.3deg) translateY(1px); } 70% { transform: rotate(-.5deg); } }
 @keyframes doctor-hand-rest { 0%, 60%, 100% { transform: rotate(0); } 72%, 82% { transform: rotate(-2deg); } }
-@keyframes doctor-talk { 0% { transform: scaleY(.4); } 45% { transform: scaleY(1.5); } 75% { transform: scaleY(.6); } 100% { transform: scaleY(1.2); } }
-.motion-paused .doctor-body, .motion-paused .doctor-head, .motion-paused .doctor-eyes, .motion-paused .doctor-hand, .motion-paused .doctor-speaking-mouth { animation: none; }
-.motion-paused .doctor-speaking-mouth { opacity: 0; }
-.motion-paused .doctor-smile { opacity: 1; }
+.motion-paused .doctor-body, .motion-paused .doctor-head, .motion-paused .doctor-eyes, .motion-paused .doctor-hand { animation: none; }
 @media (max-width: 600px) {
   .consultation-room { padding: 14px 12px 24px; }
   .consultation-title { gap: 9px; }
@@ -300,9 +298,7 @@
   .history-open { max-height: 300px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .doctor-body, .doctor-head, .doctor-eyes, .doctor-hand, .doctor-speaking-mouth, .care-thinking > span { animation: none !important; }
-  .doctor-speaking-mouth { opacity: 0 !important; }
-  .doctor-smile { opacity: 1 !important; }
+  .doctor-body, .doctor-head, .doctor-eyes, .doctor-hand, .care-thinking > span { animation: none !important; }
 }
 
 .consultation-header-actions { display: flex; align-items: center; gap: 12px; }

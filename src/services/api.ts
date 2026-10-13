@@ -6,8 +6,9 @@ export function clinicalAIError(language: 'bn' | 'en') {
     : 'AI মডেলের সঙ্গে সংযোগ হয়নি অথবা সঠিক উত্তর পাওয়া যায়নি। অনুগ্রহ করে পরে আবার চেষ্টা করুন।';
 }
 
+export class ClinicalRequestError extends Error {}
+
 let speechCooldownUntil = 0;
-let speechAccountLimitReached = false;
 
 type SpeechResult = { audioBase64: string | null; issue?: 'rate' | 'account' | 'unavailable' };
 
@@ -19,7 +20,15 @@ export const HospitalAPI = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ conversation, patientInfo, language }),
     });
-    if (!res.ok) throw new Error(clinicalAIError(language));
+    if (!res.ok) {
+      const details = await res.json().catch(() => ({}));
+      if (res.status === 429 && details.code === 'AI_RATE_LIMITED') {
+        throw new ClinicalRequestError(language === 'en'
+          ? 'The AI service request quota has been reached. Please try again after the quota resets.'
+          : 'AI সেবার অনুরোধের কোটা শেষ হয়েছে। কোটা পুনরায় চালু হলে আবার চেষ্টা করুন।');
+      }
+      throw new ClinicalRequestError(clinicalAIError(language));
+    }
     return res.json();
   },
 
@@ -47,7 +56,6 @@ export const HospitalAPI = {
 
   // 4. TTS audio generator
   async getTTSAudio(text: string, language: 'bn' | 'en'): Promise<SpeechResult> {
-    if (speechAccountLimitReached) return { audioBase64: null, issue: 'account' };
     if (Date.now() < speechCooldownUntil) return { audioBase64: null, issue: 'rate' };
     try {
       const res = await fetch('/api/tts', {
@@ -59,7 +67,6 @@ export const HospitalAPI = {
         const details = await res.json().catch(() => ({}));
         if (res.status === 429) {
           if (/credit_balance_exhausted|spend_limit_exceeded|usage_limit_exceeded|insufficient_quota/.test(details.code || '')) {
-            speechAccountLimitReached = true;
             return { audioBase64: null, issue: 'account' };
           }
           const retrySeconds = Number(details.retryAfter || res.headers.get('Retry-After'));
